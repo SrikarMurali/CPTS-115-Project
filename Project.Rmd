@@ -1,0 +1,183 @@
+---
+title: "Final Report - World Bank Health Data"
+author: "Kaylie Lewis, Natalie Toledo, Srikar Murali"
+date: "December 4, 2017"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(ggplot2)
+library(plyr)
+library(dplyr)
+library(tidyr)
+library(MASS)
+library(stringr)
+library(tree)
+library(randomForest)
+library(cluster)
+library(HSAUR)
+library(GGally)
+library(glmnet)
+library(tidyverse)
+```
+
+## Dataset Analysis
+
+```{r Analysis}
+wbh.2010 <- read.csv('C:/Users/srika/Documents/R/cpts115/HW7/wbh2010-noNA.csv')
+
+
+wbh.pca <- prcomp(wbh.2010[, c(-1, -2)], center = TRUE, scale. = TRUE)
+screeplot(wbh.pca)
+summary(wbh.pca)
+round(wbh.pca$rotation[, 1:10], 2)
+biplot(wbh.pca, col=c('grey','darkblue'), cex = rep(.5, 5))
+y <- wbh.2010$SP.DYN.TFRT.IN
+wbh.2010 %>%
+  dplyr::select(-SP.DYN.TFRT.IN, -region, -country.code) %>%
+  as.matrix() -> x
+wbh.2010 %>%
+  dplyr::select(region, country.code) %>%
+  model.matrix( ~. -1, .) -> x_train
+
+
+cv_fit <- cv.glmnet(x, y, nfolds = 5, alpha=1)
+cv_fit_2 <- cv.glmnet(cbind(x, x_train), y, nfolds = 5, alpha=1)
+par(mfrow=c(2,1))
+plot(cv_fit)
+plot(cv_fit_2)
+
+lambda <- cv_fit$lambda[which.min(cv_fit$cvm)]
+coef(cv_fit, s='lambda.min')
+
+lambda <- cv_fit_2$lambda[which.min(cv_fit_2$cvm)]
+coef(cv_fit_2, s='lambda.min')
+
+
+```
+
+
+
+
+## Choosing Predictors
+
+```{r pred}
+wbh.2010Chose <- wbh.2010 %>%
+  dplyr::select(SP.DYN.TFRT.IN, SH.MMR.RISK.ZS, SH.DYN.NCOM.ZS, SH.H2O.SAFE.RU.ZS, SH.IMM.IDPT, SH.XPD.OOPC.TO.ZS, SH.XPD.PRIV.ZS,
+         SL.UEM.TOTL.FE.ZS, SP.DYN.LE00.MA.IN, SH.XPD.PUBL.GX.ZS, SP.DYN.CDRT.IN, SH.DYN.NMRT, SH.DTH.COMM.ZS) 
+colnames(wbh.2010Chose) <- c("fertility", "maternal_death_risk", "chronic_disease_mortality", "clean_water_access", "child_immunization", "OFP_health_expenditure",
+                             "private_health_expenditure", "female_unemployment", "male_life_expectancy", "public_health_expenditure", 
+                             "death_rate", "newborn_mortality", "communicable_disease_death_rate")
+
+
+```
+
+
+## Graphing Fertility vs Predictors
+
+```{r Data Visualization}
+
+g1 <- ggplot(wbh.2010Chose, aes(x = chronic_disease_mortality, y = fertility)) +
+  geom_bar(stat = 'identity', fill = 'purple') +
+  labs(title = 'Fertility Rate vs Chronic Disease Mortality')
+g1
+
+g2 <- ggplot(wbh.2010Chose, aes(x = clean_water_access, y = fertility)) +
+  geom_line(color = 'darkgreen')
+  labs(title = 'Fertility Rate vs Clean Water Access')
+g2
+
+g3 <- ggplot(wbh.2010Chose, aes(x = death_rate, y= fertility)) +
+  geom_line(color='red') +
+  labs(title = 'Fertility Rate vs Death Rate')
+g3
+
+
+
+g4 <- ggplot(wbh.2010Chose, aes(x = OFP_health_expenditure + public_health_expenditure + private_health_expenditure, y= fertility)) +
+  geom_line(color='blue') +
+  labs(title = 'Fertility Rate vs Total Health Expenditure') +
+  xlab('Total Health Expenditure')
+g4
+
+g5 <- ggplot(wbh.2010Chose, aes(x = communicable_disease_death_rate, y= fertility)) +
+  geom_line(color='blue') +
+  labs(title = 'Fertility Rate vs Communicable Disease Mortality')
+g5
+
+
+g6 <- ggplot(wbh.2010Chose, aes(x = newborn_mortality, y= fertility)) +
+  geom_line(color='blue') +
+  labs(title = 'Fertility Rate vs Newborn Mortality')
+g6
+
+g7 <- ggplot(wbh.2010Chose, aes(x = child_immunization, y= fertility)) +
+  geom_line(color='purple') +
+  labs(title = 'Fertility Rate vs Child Immunization')
+g7
+
+
+
+g8 <- ggplot(wbh.2010Chose, aes(x = male_life_expectancy, y= fertility)) +
+  geom_line(color='blue') +
+  labs(title = 'Fertility Rate vs Male Life Expectancy')
+g8
+
+g9 <- ggplot(wbh.2010Chose, aes(x = maternal_death_risk, y= fertility)) +
+  geom_line(color='purple') +
+  labs(title = 'Fertility Rate vs Maternal Mortality')
+g9
+
+g10 <- ggplot(wbh.2010Chose, aes(x = female_unemployment, y= fertility)) +
+  geom_line(color='purple') +
+  labs(title = 'Fertility Rate vs Female Unemployment')
+g10
+
+
+```
+
+
+## Supervised Learning Models
+
+#### Ordinary Least Squares Regression
+
+```{r OLSR}
+
+wbh.lm <- lm(fertility~., data=wbh.2010Chose)
+summary(wbh.lm)
+wbh.lm.fin <- stepAIC(wbh.lm)
+summary(wbh.lm.fin)
+
+
+```
+
+
+#### Decision Tree
+
+```{r DTree}
+fertility.tr <- tree(fertility ~. , data=wbh.2010Chose)
+plot(fertility.tr)
+text(fertility.tr)
+dim(wbh.2010Chose)
+fertility.pred <- rep(NA,length(wbh.2010Chose$fertility))
+for (i in 1:length(wbh.2010Chose$fertility)){
+  fertility.tr2 <-tree(fertility ~ . , data=wbh.2010Chose[-i,])
+  fertility.pred[i] <-predict(fertility.tr2, wbh.2010Chose[i,])
+}
+
+msel <- mean((wbh.2010Chose$fertility - fertility.pred)^2)
+msel
+```
+
+#### Random Forest
+
+```{r RForest}
+
+fertility.rf <- randomForest(fertility ~., data=wbh.2010Chose, na.action = na.exclude)
+plot(fertility.rf)
+varImpPlot(fertility.rf)
+print(fertility.rf)
+summary(fertility.rf)
+
+```
